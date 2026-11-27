@@ -167,6 +167,11 @@ def push_feishu(result):
         "**累计**：已签到 %s 天，共 %s 算力" % (days, total),
         "**时间**：%s" % now,
     ]
+    age = result.get("cred_age_days")
+    if age is not None and age >= 45:
+        lines.append("")
+        lines.append("🟠 **凭证已用 %d 天**，建议重新微信扫码并更新 Secret `IMA_CREDENTIALS`"
+                     % int(age))
     card = {
         "msg_type": "interactive",
         "card": {
@@ -291,9 +296,22 @@ def main():
     if today is None:
         sys.exit("[错误] 未找到今日条目, 活动可能已改版, 请检查。")
 
+    # 凭证年龄预警：从 saved_at 算已用天数（凭证无 exp 字段，只能按保存时间估算）
+    cred_age = None
+    saved = cred.get("saved_at")
+    if saved:
+        try:
+            from datetime import datetime as _dt
+            cred_age = (now_cst() - _dt.strptime(saved, "%Y-%m-%d %H:%M:%S").replace(tzinfo=CST)).days
+            if cred_age >= 45:
+                print("[预警] ima 凭证已用 %d 天，建议重新扫码更新 Secret" % cred_age)
+        except Exception:
+            cred_age = None
+
     result = {
         "time": now,
         "today_status": today.get("status"),
+        "cred_age_days": cred_age,
         "dry_run": args.dry_run,
         "checkin_performed": False,
         "checkin_result": None,
