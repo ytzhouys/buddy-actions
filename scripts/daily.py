@@ -27,6 +27,13 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone, timedelta
 
+# 微信 / 钉钉推送助手（与飞书推送并列；失败不影响签到结论）
+try:
+    import notify
+except ImportError:  # pragma: no cover - 兼容从不同目录导入
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import notify
+
 # ---------------------------------------------------------------- 配置
 REFRESH_API = "https://copilot.tencent.com"
 REFRESH_PATH = "/v2/plugin/auth/token/refresh"
@@ -386,6 +393,51 @@ def push_feishu(checkin: dict, cat: dict, ok: bool) -> tuple[bool, str]:
         return False, "飞书推送失败：%s" % str(exc)[:200]
 
 
+# ---------------------------------------------------------------- 微信/钉钉通用正文
+def build_common_md(checkin: dict, cat: dict, ok: bool) -> tuple[str, str]:
+    """构造微信/钉钉通用 markdown（内容与飞书卡片一致）。"""
+    title = "Buddy 加油站日报 · %s" % now_cst()
+    ck_icon = "✅" if checkin.get("success") else "❌"
+    ck_lines = [
+        "- 结论：%s %s" % (ck_icon, "成功" if checkin.get("success") else "失败"),
+        "- 动作：%s" % (checkin.get("action") or "无"),
+        "- 说明：%s" % (checkin.get("msg") or "无"),
+    ]
+    d = checkin.get("detail") or {}
+    if d:
+        ck_lines.append("- 连签：%s 天；本期累计：%s 分" % (
+            d.get("streak_days"), d.get("total_credits")))
+
+    cat_icon = "🐱" if cat.get("ok") else "⚠️"
+    cat_lines = ["- 状态：%s %s" % (cat_icon, cat.get("state_text") or cat.get("state") or "未知")]
+    if cat.get("location"):
+        cat_lines.append("- 地点：%s" % cat["location"])
+    if cat.get("reward") is not None:
+        cat_lines.append("- 旅行奖励：+%s 分" % cat["reward"])
+    if cat.get("remaining"):
+        cat_lines.append("- 预计剩余：%s" % cat["remaining"])
+    for action in cat.get("actions") or []:
+        cat_lines.append("- %s" % action)
+
+    sections = [("① 签到结果", ck_lines), ("② 猫猫状态", cat_lines)]
+    # ③ 凭证预警：refresh token 剩余不足 7 天时提醒更新 Secret
+    days_raw = os.environ.get("WB_TOKEN_DAYS", "")
+    if days_raw:
+        try:
+            days = float(days_raw)
+            if days <= 7:
+                warn = ("凭证已过期 %.1f 天，签到即将失败！" % abs(days) if days < 0
+                        else "凭证仅剩 %.1f 天" % days)
+                sections.append(("③ 凭证预警", [
+                    warn,
+                    "请在本机重新导出 token 并更新 GitHub Secret `WB_REFRESH_TOKEN`"
+                    "（步骤见《恢复说明》第二节）",
+                ]))
+        except ValueError:
+            pass
+    return title, notify.compose_md(title, sections)
+
+
 # ---------------------------------------------------------------- 主流程
 def main() -> int:
     rt = os.environ.get("WB_REFRESH_TOKEN", "").strip()
@@ -416,11 +468,23 @@ def main() -> int:
     pushed, push_msg = push_feishu(checkin, cat, ok)
     log(push_msg)
 
+    # 微信 / 钉钉等额外渠道：与飞书并列，失败不影响签到结论
+    notify_results = {}
+    try:
+        title, common_md = build_common_md(checkin, cat, ok)
+        notify_results = notify.push_all(title, common_md)
+        for name, res in notify_results.items():
+            log("%s推送：%s" % (name, res["msg"]))
+    except Exception as exc:  # noqa: BLE001 - 双保险
+        log("额外渠道推送异常，已隔离：%s" % type(exc).__name__)
+        notify_results = {"error": {"ok": False, "msg": type(exc).__name__}}
+
     evidence["summary"] = {
         "overall_success": ok,
         "checkin": redact(checkin),
         "cat": redact(cat),
         "feishu_push": {"ok": pushed, "msg": push_msg},
+        "other_push": notify_results,
     }
     _write_evidence(evidence)
 

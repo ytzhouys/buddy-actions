@@ -29,6 +29,12 @@ jobs:
           WB_REFRESH_TOKEN: ${{ secrets.WB_REFRESH_TOKEN }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
+          # 微信（企业微信机器人 / Server酱 / PushPlus）与钉钉，未配置的留空即可自动跳过
+          WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
+          SERVERCHAN_KEY: ${{ secrets.SERVERCHAN_KEY }}
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
           WB_LOCATION_ID: ${{ vars.WB_LOCATION_ID }}
         run: |
           # 不硬编码任何 Python 版本号/解释器路径，运行时动态获取

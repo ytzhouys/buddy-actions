@@ -69,7 +69,15 @@ python scripts/export_token.py --out /tmp/wb_rt.txt
 | `WB_REFRESH_TOKEN` | 上一步导出的 refresh token 明文 | ✅ |
 | `FEISHU_WEBHOOK` | 飞书群自定义机器人 Webhook 地址 | ✅ |
 | `FEISHU_SECRET` | 飞书机器人加签密钥（若启用了签名校验） | 可选 |
+| `WECHAT_WEBHOOK` | 企业微信群机器人 Webhook 地址（推荐） | 可选 |
+| `DINGTALK_WEBHOOK` | 钉钉群机器人 Webhook 地址 | 可选 |
+| `DINGTALK_SECRET` | 钉钉机器人加签密钥（若启用了签名校验） | 可选 |
+| `SERVERCHAN_KEY` | Server 酱 Turbo 的 SendKey（推到个人微信） | 可选 |
+| `PUSHPLUS_TOKEN` | PushPlus 的 token（推到个人微信） | 可选 |
 | `WB_LOCATION_ID`（Variables） | 指定派遣地点 id；不填则随机 | 可选 |
+
+> 通知渠道至少配一个（`FEISHU_WEBHOOK` 或其他任意一个）。微信/钉钉渠道不配就自动跳过，
+> 不影响签到；想同时收多个平台的消息就都填上，同一份结果会分别推送。
 
 ### 3. 启用定时任务
 
@@ -134,9 +142,11 @@ python scripts/export_token.py --out /tmp/wb_rt.txt
 | 渠道 | 用途 | 状态 |
 |---|---|---|
 | **飞书卡片** | 每天签到/派猫/算力的结果，分卡片展示 | ✅ 已启用 |
+| **企业微信群机器人** | 同一份结果推到企业微信群 | ✅ 已支持，配 `WECHAT_WEBHOOK` 即启用 |
+| **钉钉群机器人** | 同一份结果推到钉钉群（支持加签） | ✅ 已支持，配 `DINGTALK_WEBHOOK` 即启用 |
+| **Server 酱 / PushPlus** | 推到个人微信（二选一即可） | ✅ 已支持，配 `SERVERCHAN_KEY` / `PUSHPLUS_TOKEN` |
 | **GitHub 邮件** | 任务失败时自动发到注册邮箱 | ✅ 默认开启 |
-| **飞书凭证预警** | 凭证快过期时在卡片里醒目标红 | ✅ 已启用 |
-| 微信服务号 / 钉钉 / Telegram | 需额外配置 webhook 转发 | 可选，见下 |
+| **凭证预警** | 凭证快过期时在消息里醒目标红，所有渠道同步显示 | ✅ 已启用 |
 
 ### 提前预警（已内置）
 
@@ -147,13 +157,28 @@ python scripts/export_token.py --out /tmp/wb_rt.txt
 
 > 默认阈值 7 天 / 45 天可在脚本里改：`daily.py` 的 `days <= 7`、`ima_daily.py` 的 `age >= 45`。
 
-### 想加微信 / 钉钉 / Telegram 通知？
+### 微信 / 钉钉怎么开通（各加一个推送渠道）
 
-GitHub Actions 本身只会发邮件。要推到别的平台，最简单的方式是**让飞书群机器人转发**，
-或在 workflow 里再加一个 webhook 推送步骤。常见选择：
+GitHub Actions 本身只会发邮件，微信/钉钉是在脚本里按配置额外调用的 webhook 推送，
+**和飞书并列、互不干扰，推送失败也不会让签到失败**。想启用哪个就配哪个 Secret：
 
-- **微信**：Either 用企业微信群机器人（支持 webhook，和飞书一样简单），或个人微信接 Server 酱 / PushPlus
-- **钉钉**：群机器人 webhook，加签方式和飞书类似
-- **Telegram**：BotFather 建 bot，拿 chat_id，调 `api.telegram.org/bot<token>/sendMessage`
+**① 企业微信群机器人（最推荐，和飞书一样简单）**
+1. 企业微信里建一个群（可以只有自己）→ 群设置 → 群机器人 → 添加机器人
+2. 复制 Webhook 地址（形如 `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...`）
+3. 填入 Secret `WECHAT_WEBHOOK`
 
-需要哪种告诉我，我帮你加一个对应的推送步骤（都是往同一份结果发消息，不影响签到）。
+**② 钉钉群机器人**
+1. 钉钉里建群 → 群设置 → 智能群助手 → 添加机器人 → 选「自定义」
+2. 安全设置选「加签」会给你一个密钥，或选「自定义关键词」填 `签到`
+3. Webhook 地址填 Secret `DINGTALK_WEBHOOK`；若用了加签，把密钥填 `DINGTALK_SECRET`
+   （若用关键词方式则不填 `DINGTALK_SECRET`，并把关键词设为 `签到`，因为消息标题含这两字）
+
+**③ 推到个人微信（Server 酱 / PushPlus 二选一）**
+- Server 酱：关注「Server 酱」公众号 → 登录 sct.ftqq.com 拿 SendKey → 填 `SERVERCHAN_KEY`
+- PushPlus：关注「PushPlus 推送加」公众号 → 登录 pushplus.plus 拿 token → 填 `PUSHPLUS_TOKEN`
+
+**验证**：配好后到 Actions 页面手动 Run workflow 跑一次，日志里会逐行打印
+「企业微信推送：…」「钉钉推送：…」，收到即成功。两个定时任务（Buddy / ima）共用同一批 Secret，
+配一次两边都生效。
+
+> Telegram 未内置，如需可照 `scripts/notify.py` 的模式再加一个函数即可。

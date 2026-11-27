@@ -25,6 +25,13 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+# 微信 / 钉钉推送助手（与飞书推送并列；失败不影响签到结论）
+try:
+    import notify
+except ImportError:  # pragma: no cover - 兼容从不同目录导入
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import notify
+
 BASE_URL = "https://ima.qq.com"
 REFRESH_URL = BASE_URL + "/cgi-bin/auth_login/refresh"
 ACTIVITY_INFO_URL = BASE_URL + "/cgi-bin/daily_login_activity/get_activity_info"
@@ -199,6 +206,32 @@ def push_feishu(result):
     except Exception as exc:
         print("飞书推送失败: %s" % type(exc).__name__)
     return False
+
+
+def build_common_md(result):
+    """构造微信/钉钉通用 markdown（内容与飞书卡片一致）。"""
+    now = now_cst().strftime("%Y-%m-%d %H:%M")
+    title = "ima 算力签到 · %s" % now
+    days = result.get("checkin_days", "?")
+    total = result.get("total_reward_points", "?")
+    performed = result.get("checkin_performed")
+    msg = result.get("message", "")
+    if performed:
+        head = "✅ 今日签到成功"
+    elif "已签到" in msg:
+        head = "⏭️ 今日已签到（跳过）"
+    else:
+        head = "⚠️ 请检查签到状态"
+    lines = [
+        "- 结果：%s" % head,
+        "- 本周进度：%s" % result.get("week_summary", "-"),
+        "- 累计：已签到 %s 天，共 %s 算力" % (days, total),
+        "- 时间：%s" % now,
+    ]
+    age = result.get("cred_age_days")
+    if age is not None and age >= 45:
+        lines.append("- 🟠 凭证已用 %d 天，建议重新微信扫码并更新 Secret `IMA_CREDENTIALS`" % int(age))
+    return title, notify.compose_md(title, [("ima 每日算力签到", lines)])
 
 
 def build_cookie(cred, token):
@@ -408,6 +441,14 @@ def main():
 
     if not args.dry_run:
         push_feishu(result)
+        # 微信 / 钉钉等额外渠道：与飞书并列，失败不影响签到结论
+        try:
+            title, common_md = build_common_md(result)
+            notify_results = notify.push_all(title, common_md)
+            for name, res in notify_results.items():
+                print("%s推送：%s" % (name, res["msg"]))
+        except Exception as exc:  # noqa: BLE001 - 双保险
+            print("额外渠道推送异常，已隔离：%s" % type(exc).__name__)
 
     if args.as_json:
         print("__IMA_RESULT__" + json.dumps(result, ensure_ascii=False))
