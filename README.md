@@ -1,7 +1,14 @@
-# Buddy 加油站 · GitHub Actions 每日签到 + 派猫
+# Buddy 加油站 + ima 算力 · GitHub Actions 每日自动签到
 
-每天在 GitHub 免费 schedule 定时任务上跑一次，**单次运行内同时完成签到与派猫**，
-结果推送到飞书。纯云端 runner，不需要任何常开设备。
+每天在 GitHub 免费 schedule 定时任务上跑，**单次运行内完成 Buddy 签到 + 派猫**，
+另有一个独立任务每天领 **ima 算力**。结果分别推送到飞书，一眼分清。纯云端 runner，不需要任何常开设备。
+
+| 工作流 | 文件 | 北京时间 | 内容 |
+|---|---|---|---|
+| Buddy 加油站 | `.github/workflows/daily.yml` | 每天 06:00 | 签到 + 派猫 + 飞书卡片 |
+| ima 算力 | `.github/workflows/ima.yml` | 每天 07:00 | 领每日算力 + 周日试领满签奖励 + 飞书卡片 |
+
+两个任务独立运行、故障互不影响。
 
 ## 一、它怎么工作
 
@@ -94,3 +101,28 @@ python scripts/export_token.py --out /tmp/wb_rt.txt
 - `evidence/run_20261127.json`：本机实测各接口的原始返回（已脱敏）
 
 字段说明：`http_status` 是 HTTP 状态码，`raw_response_redacted` 是脱敏后的原始 JSON 返回体。
+
+## 七、ima 每日算力签到
+
+`.github/workflows/ima.yml` + `scripts/ima_daily.py`，每天北京时间 07:00 云端运行一次。
+
+**机制**：ima 桌面端没有"点签到"动作——每天刷新登录态时"每日登录福利"就自动到账。
+所以脚本做的是：用长期 `refresh_token` 换 2 小时有效的 access token → 查活动状态 →
+未签则 `POST /cgi-bin/daily_login_activity/check_in` → 周日再试领一次满签奖励 → 推飞书。
+
+**一次性配置**：
+
+1. Secret `IMA_CREDENTIALS`：一个 JSON 字符串，含 `ima_uid`、`uid_type`、`ima_guid`、`refresh_token`
+   四个字段（由微信扫码授权一次得到）。写法：
+   ```bash
+   # 本机临时目录运行扫码脚本，微信扫码一次
+   python ima_recover.py --force          # 生成 login_qr.png，扫码后写 credentials.json
+   # 把 credentials.json 的内容整体作为一个 Secret（不入库）
+   ```
+2. `FEISHU_WEBHOOK` / `FEISHU_SECRET` 与 Buddy 任务共用，无需重复配置。
+
+**凭证失效**：ima 的 refresh_token 有效期由服务端控制。若某天签到失败并收到 GitHub 邮件告警，
+本机重新跑一次 `ima_recover.py --force` 扫码，把新的 `credentials.json` 覆盖 `IMA_CREDENTIALS` Secret 即可。
+
+**安全**：凭证只存 Secret，脚本从 `IMA_CREDENTIALS` 环境变量读入内存，不落盘、不进日志；
+飞书卡片只显示签到进度与算力累计，无任何 token。
