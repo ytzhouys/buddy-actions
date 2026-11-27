@@ -126,3 +126,34 @@ python scripts/export_token.py --out /tmp/wb_rt.txt
 
 **安全**：凭证只存 Secret，脚本从 `IMA_CREDENTIALS` 环境变量读入内存，不落盘、不进日志；
 飞书卡片只显示签到进度与算力累计，无任何 token。
+
+## 八、通知方式与"提前预警"
+
+### 现有通知渠道
+
+| 渠道 | 用途 | 状态 |
+|---|---|---|
+| **飞书卡片** | 每天签到/派猫/算力的结果，分卡片展示 | ✅ 已启用 |
+| **GitHub 邮件** | 任务失败时自动发到注册邮箱 | ✅ 默认开启 |
+| **飞书凭证预警** | 凭证快过期时在卡片里醒目标红 | ✅ 已启用 |
+| 微信服务号 / 钉钉 / Telegram | 需额外配置 webhook 转发 | 可选，见下 |
+
+### 提前预警（已内置）
+
+- **WorkBuddy 签到凭证**：JWT 里有精确过期时间，剩余 ≤ 7 天时，飞书卡片自动多出
+  "③ 凭证预警"区块，提示重新导出更新 `WB_REFRESH_TOKEN`。
+- **ima 算力凭证**：凭证无 exp 字段，按 `saved_at` 保存日期估算，用满 45 天时提示重新扫码。
+- **签到失败**：卡片头部变红 + GitHub 邮件告警，双重提醒。
+
+> 默认阈值 7 天 / 45 天可在脚本里改：`daily.py` 的 `days <= 7`、`ima_daily.py` 的 `age >= 45`。
+
+### 想加微信 / 钉钉 / Telegram 通知？
+
+GitHub Actions 本身只会发邮件。要推到别的平台，最简单的方式是**让飞书群机器人转发**，
+或在 workflow 里再加一个 webhook 推送步骤。常见选择：
+
+- **微信**：Either 用企业微信群机器人（支持 webhook，和飞书一样简单），或个人微信接 Server 酱 / PushPlus
+- **钉钉**：群机器人 webhook，加签方式和飞书类似
+- **Telegram**：BotFather 建 bot，拿 chat_id，调 `api.telegram.org/bot<token>/sendMessage`
+
+需要哪种告诉我，我帮你加一个对应的推送步骤（都是往同一份结果发消息，不影响签到）。
