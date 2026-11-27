@@ -1,0 +1,36 @@
+name: ima 每日算力签到
+
+# 免费 schedule 定时任务，云端 runner；无需任何常开设备。
+# 每天用 refresh_token 刷新登录态 -> 查活动 -> 领每日算力 -> 周日试领满签奖励 -> 飞书推送。
+on:
+  schedule:
+    # UTC 23:00 = 北京时间次日 07:00，每天一次（与 Buddy 的 06:00 错开）
+    - cron: '0 23 * * *'
+  workflow_dispatch:  # 支持手动触发验证
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ima-daily
+  cancel-in-progress: false
+
+jobs:
+  ima:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 运行 ima 签到
+        env:
+          IMA_CREDENTIALS: ${{ secrets.IMA_CREDENTIALS }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
+        run: |
+          # 不硬编码任何 Python 版本号/解释器路径，运行时动态获取
+          PY="$(command -v python3 || command -v python)"
+          echo "Using interpreter: $PY"
+          "$PY" scripts/ima_daily.py
