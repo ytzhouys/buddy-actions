@@ -111,7 +111,33 @@ def api_call(base: str, path: str, token: str, method: str = "POST",
         return 0, {"code": -1, "msg": type(exc).__name__ + ": " + str(exc)[:160]}
 
 
+def token_days_left(token: str):
+    """从 JWT 的 exp 字段解析剩余天数；非 JWT 或解析失败返回 None。
+    仅读取过期时间，不打印任何 token 内容。"""
+    try:
+        parts = token.split(".")
+        if len(parts) < 2:
+            return None
+        payload = parts[1]
+        payload += "=" * (-len(payload) % 4)
+        obj = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8", "ignore"))
+        exp = obj.get("exp")
+        if not exp:
+            return None
+        return (float(exp) - time.time()) / 86400.0
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def refresh_access_token(rt: str) -> str:
+    # 记录 refresh token 剩余有效期，供每天推送里做"提前预警"
+    days = token_days_left(rt)
+    if days is not None:
+        os.environ["WB_TOKEN_DAYS"] = ("%.1f" % days)
+        if days < 0:
+            log("⚠️ refresh token 已过期（%.1f 天），需立刻重新导出" % days)
+        elif days <= 7:
+            log("⚠️ refresh token 仅剩 %.1f 天，请尽快重新导出更新 Secret" % days)
     req = urllib.request.Request(REFRESH_API + REFRESH_PATH, data=b"{}", method="POST")
     req.add_header("Content-Type", "application/json")
     req.add_header("X-Refresh-Token", rt)
@@ -308,17 +334,35 @@ def push_feishu(checkin: dict, cat: dict, ok: bool) -> tuple[bool, str]:
     for action in cat.get("actions") or []:
         cat_lines.append("- %s" % action)
 
+    elements = [
+        {"tag": "markdown", "content": "### ① 签到结果\n" + "\n".join(ck_lines)},
+        {"tag": "hr"},
+        {"tag": "markdown", "content": "### ② 猫猫状态\n" + "\n".join(cat_lines)},
+    ]
+
+    # ③ 凭证预警：refresh token 剩余不足 7 天时提醒更新 Secret
+    days_raw = os.environ.get("WB_TOKEN_DAYS", "")
+    if days_raw:
+        try:
+            days = float(days_raw)
+            if days <= 7:
+                warn = ("🔴 **凭证已过期 %.1f 天**，签到即将失败！" % abs(days) if days < 0
+                        else "🟠 **凭证仅剩 %.1f 天**" % days)
+                elements.append({"tag": "hr"})
+                elements.append({"tag": "markdown", "content":
+                    "### ③ ⚠️ 凭证预警\n" + warn +
+                    "\n请在本机重新导出 token 并更新 GitHub Secret `WB_REFRESH_TOKEN`"
+                    "\n（步骤见备份包里的《恢复说明》第二节）"})
+        except ValueError:
+            pass
+
     card = {
         "msg_type": "interactive",
         "card": {
             "config": {"wide_screen_mode": True},
             "header": {"title": {"tag": "plain_text", "content": title},
                        "template": "green" if ok else "red"},
-            "elements": [
-                {"tag": "markdown", "content": "### ① 签到结果\n" + "\n".join(ck_lines)},
-                {"tag": "hr"},
-                {"tag": "markdown", "content": "### ② 猫猫状态\n" + "\n".join(cat_lines)},
-            ],
+            "elements": elements,
         },
     }
 
